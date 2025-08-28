@@ -24,7 +24,7 @@ export function Navbar() {
               {link.label}
             </Link>
           ))}
-          <Link href="https://github.com/WiredGeist/geisthunt" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors" aria-label="GitHub Repository" prefetch={false}>
+          <Link href="https://github.com/WiredGeist" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary transition-colors" aria-label="GitHub Repository" prefetch={false}>
             <Github className="h-5 w-5" />
           </Link>
         </nav>
@@ -47,7 +47,7 @@ export function Navbar() {
                     {link.label}
                   </Link>
                 ))}
-                <Link href="https://github.com/WiredGeist/geisthunt" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground" aria-label="GitHub Repository" prefetch={false}>
+                <Link href="https://github.com/WiredGeist" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground" aria-label="GitHub Repository" prefetch={false}>
                   GitHub
                 </Link>
               </nav>
