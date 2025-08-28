@@ -1,7 +1,5 @@
-// src/app/api/gmail-webhook/route.ts (More Robust Version)
 import { NextResponse } from 'next/server';
 
-// We now use the more direct fetching function
 import { fetchLatestEmail } from '@/app/actions/fetch-email-action'; 
 import { analyzeEmail } from '@/ai/flows/analyze-email-flow'; 
 import { sendReport } from '@/app/actions/send-report-action';
@@ -18,8 +16,6 @@ function getOriginalRecipient(body: string): string | null {
 
 export async function POST(request: Request) {
     try {
-        // We receive the notification just to be "woken up".
-        // We will ignore the data inside it and perform our own search.
         const body = await request.json();
         if (!body.message) {
             console.log('[Webhook] Received empty/test notification. Acknowledging.');
@@ -28,9 +24,6 @@ export async function POST(request: Request) {
         
         console.log('[Webhook] Notification received. Searching for latest #checkspam email...');
 
-        // --- THE NEW, ROBUST LOGIC ---
-        // Instead of parsing the notification, we actively search the mailbox.
-        // This will find the email even if it's in the Spam folder.
         const { success, data: email, error } = await fetchLatestEmail();
 
         if (error) {
@@ -67,7 +60,6 @@ export async function POST(request: Request) {
 
     } catch (err: any) {
         console.error("[Webhook] An unexpected error occurred:", err);
-        // Acknowledge the message to prevent Pub/Sub from retrying endlessly on a code error.
         return NextResponse.json({ success: true, message: "Acknowledged after error." });
     }
-}}
+}
