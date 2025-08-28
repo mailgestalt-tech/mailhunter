@@ -23,7 +23,6 @@ function createRawMessage(recipient: string, from: string, subject: string, body
 
 export async function sendReport(input: SendReportInput): Promise<{ success: boolean; error?: string }> {
   const { recipient, reportContent } = input;
-  // Get the 'From' address from the environment variables
   const userEmail = process.env.GMAIL_USER_EMAIL;
 
   if (!userEmail) {
@@ -31,11 +30,10 @@ export async function sendReport(input: SendReportInput): Promise<{ success: boo
   }
 
   try {
-    // Use the OAuth 2.0 authentication method
     const auth = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
-      'http://localhost:9002/api/auth/callback/google' // The correct redirect URI
+      'http://localhost:9002/api/auth/callback/google'
     );
 
     auth.setCredentials({
@@ -52,7 +50,7 @@ export async function sendReport(input: SendReportInput): Promise<{ success: boo
     );
 
     await gmail.users.messages.send({
-      userId: 'me', // 'me' refers to the authenticated user (mailgestalt@gmail.com)
+      userId: 'me',
       requestBody: {
         raw: rawMessage,
       },
