@@ -1,4 +1,4 @@
-// src/app/services/url-service.ts (Corrected Version)
+// src/app/services/url-service.ts (Faster Polling Version)
 'use server';
 
 import fetch from 'node-fetch';
@@ -11,21 +11,20 @@ export interface UrlScanResult {
     final_domain?: string;
     final_ip?: string;
     page_title?: string;
-    // We can add more fields here as needed
 }
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// --- NEW FUNCTION: Pre-resolve the redirect ---
 async function resolveRedirect(url: string): Promise<string> {
+    // Safety check for non-web links
+    if (!url.startsWith('http')) {
+        return url;
+    }
     try {
-        // A HEAD request is lightweight and will follow redirects by default
-        const response = await fetch(url, { method: 'HEAD', redirect: 'follow', timeout: 10000 });
-        // The 'response.url' will be the final destination URL after all redirects
+        const response = await fetch(url, { method: 'HEAD', redirect: 'follow', timeout: 5000 });
         return response.url;
     } catch (error) {
         console.error(`Redirect resolution failed for ${url}:`, error);
-        // If it fails, return the original URL and let urlscan try
         return url;
     }
 }
@@ -35,24 +34,22 @@ export async function getUrlScanReport(urlToScan: string): Promise<UrlScanResult
         return { error: "urlscan.io API key not configured." };
     }
     
-    // --- STEP 1: RESOLVE THE REDIRECT FIRST ---
-    console.log(`[Geist Hunt] Resolving initial URL: ${urlToScan.substring(0, 80)}...`);
     const finalUrl = await resolveRedirect(urlToScan);
-    console.log(`[Geist Hunt] Redirect resolved to: ${finalUrl}`);
 
-    // If the redirect leads to a super long, un-scannable URL, report an error.
+    if (!finalUrl.startsWith('http')) {
+        return { error: `Cannot scan non-web link: ${finalUrl}` };
+    }
     if (finalUrl.length > 2000) {
-        return { error: "Resolved URL is too long for urlscan.io API." };
+        return { error: "Resolved URL is too long for API." };
     }
 
     const headers = { 'API-Key': URLSCAN_API_KEY, 'Content-Type': 'application/json' };
     const body = JSON.stringify({ url: finalUrl, visibility: "private" });
 
     try {
-        // --- STEP 2: SUBMIT THE FINAL URL FOR SCANNING ---
-        console.log(`[urlscan.io] Submitting final URL for analysis: ${finalUrl}`);
+        console.log(`[urlscan.io] Submitting final URL: ${finalUrl}`);
         const submitResponse = await fetch('https://urlscan.io/api/v1/scan/', {
-            method: 'POST', headers, body, timeout: 20000,
+            method: 'POST', headers, body, timeout: 5000,
         });
 
         if (!submitResponse.ok) {
@@ -67,12 +64,16 @@ export async function getUrlScanReport(urlToScan: string): Promise<UrlScanResult
             return { error: `API submission failed: ${submitData.message || 'Could not get result URL'}` };
         }
         
-        // --- STEP 3: POLLING FOR THE FINAL RESULT ---
-        for (let i = 0; i < 15; i++) { 
-            await sleep(8000); // Polling every 8 seconds
-            const resultResponse = await fetch(resultApiUrl, { timeout: 10000 });
+        // --- FASTER POLLING LOOP FOR VERCEL HOBBY PLAN ---
+        // We will try 3 times, waiting only 2 seconds between each attempt.
+        // This keeps the total potential wait time under Vercel's 10-second limit.
+        for (let i = 0; i < 3; i++) { 
+            await sleep(2000); // Wait 2 seconds
+            console.log(`[urlscan.io] Polling for results (attempt ${i + 1}/3)...`);
+            const resultResponse = await fetch(resultApiUrl, { timeout: 2000 });
             
             if (resultResponse.status === 200) {
+                console.log('[urlscan.io] Scan result received successfully.');
                 const scanData: any = await resultResponse.json();
                 return {
                     final_url: scanData.page?.url,
@@ -80,13 +81,15 @@ export async function getUrlScanReport(urlToScan: string): Promise<UrlScanResult
                     final_ip: scanData.page?.ip,
                     page_title: scanData.task?.pageTitle,
                 };
+
             }
             if (resultResponse.status !== 404) {
                 return { error: `Error fetching results. Status: ${resultResponse.status}` };
             }
         }
         
-        return { error: "Scan timed out on urlscan.io after 2 minutes." };
+        // If the loop finishes, the scan is taking too long for this environment.
+        return { error: "Scan is taking too long to complete within the serverless function timeout." };
 
     } catch (e: any) {
         return { error: `urlscan.io API Error: ${e.message}` };
