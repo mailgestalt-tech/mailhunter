@@ -37,7 +37,7 @@ export function Footer() {
             </Link>.
           </p>
           <p className="mt-1">
-            Like this service? Help keep the servers running on Ko-fi or Patreon.
+            Like this service? Help keep the servers running on Ko-fi or Patreon. 
           </p>
         </div>
 
