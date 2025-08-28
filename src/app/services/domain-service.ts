@@ -1,11 +1,11 @@
-// src/app/services/domain-service.ts (Corrected Version)
+// src/app/services/domain-service.ts (Final, Most Robust Version)
 'use server';
 
 import whois from 'node-whois';
 import tls from 'tls';
 import dns from 'dns';
 
-// Make sure you have `declare module 'node-whois';` in a separate `declarations.d.ts` file in your project.
+// Make sure you have `declare module 'node-whois';` in a separate `declarations.d.ts` file.
 
 interface WhoisData {
     registrar?: string | null;
@@ -52,13 +52,14 @@ export async function getDomainIntel(domain: string): Promise<{ whois: WhoisData
     try {
         const rawResult: any = await whois.lookup(domain);
         const result = Array.isArray(rawResult) ? rawResult.map(r => r.data).join('\n') : rawResult;
-
-        // More robust regex to catch different WHOIS formats
-        const createdMatch = result.match(/(Creation Date|Created On|Registered on|Created):\s*(.*)/i);
-        const registrarMatch = result.match(/(Registrar|Reseller):\s*(.*)/i);
+        
+        // --- FINAL, MOST ROBUST REGEX ---
+        // Catches more labels and handles different line endings and spacings.
+        const createdMatch = result.match(/(Creation Date|Created On|Registered on|Created|Registration Time):\s*(.*)/i);
+        const registrarMatch = result.match(/(Registrar|Reseller|Registrar Name):\s*(.*)/i);
 
         if (createdMatch && createdMatch[2]) {
-            const dateString = createdMatch[2].trim().split('T')[0]; // Handle timestamps
+            const dateString = createdMatch[2].trim().split('T')[0];
             const creationDate = new Date(dateString);
             if (!isNaN(creationDate.getTime())) {
                 const age = Math.floor((new Date().getTime() - creationDate.getTime()) / (1000 * 3600 * 24));
@@ -67,9 +68,20 @@ export async function getDomainIntel(domain: string): Promise<{ whois: WhoisData
                 whois_data.created = "Invalid date in WHOIS";
             }
         } else {
-            whois_data.created = "Unknown";
+            // --- ADDED FALLBACK: Look for any standalone date format ---
+            const dateRegex = /(\d{4}-\d{2}-\d{2})/;
+            const fallbackDateMatch = result.match(dateRegex);
+            if (fallbackDateMatch && fallbackDateMatch[1]) {
+                const creationDate = new Date(fallbackDateMatch[1]);
+                 if (!isNaN(creationDate.getTime())) {
+                    const age = Math.floor((new Date().getTime() - creationDate.getTime()) / (1000 * 3600 * 24));
+                    whois_data.created = `${creationDate.toISOString().split('T')[0]} (${age} days ago)`;
+                 }
+            } else {
+                 whois_data.created = "Unknown";
+            }
         }
-
+        
         whois_data.registrar = registrarMatch ? registrarMatch[2].trim() : "Unknown";
 
     } catch (e: any) {
