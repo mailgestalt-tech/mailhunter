@@ -1,3 +1,4 @@
+// src/app/api/gmail-webhook/route.ts (Final Recipient Logic)
 import { NextResponse } from 'next/server';
 
 import { fetchLatestEmail } from '@/app/actions/fetch-email-action'; 
@@ -5,7 +6,6 @@ import { analyzeEmail } from '@/ai/flows/analyze-email-flow';
 import { sendReport } from '@/app/actions/send-report-action';
 import { generateHtmlReport } from '@/app/services/report-formatter';
 
-// Helper to find the original recipient from the forwarded email body
 function getOriginalRecipient(body: string): string | null {
     const forwardedContentMatch = body.match(/---------- Forwarded message ---------([\s\S]*)/);
     if (!forwardedContentMatch || !forwardedContentMatch[1]) return null;
@@ -14,44 +14,47 @@ function getOriginalRecipient(body: string): string | null {
     return match ? match[1] : null;
 }
 
+// A more robust function to extract just the email address
+function getEmailFromHeader(headerValue: string): string | null {
+    if (!headerValue) return null;
+    const match = headerValue.match(/[\w\.\-]+@[\w\.\-]+\.\w+/);
+    return match ? match[0] : null;
+}
+
 export async function POST(request: Request) {
     try {
         const body = await request.json();
         if (!body.message) {
-            console.log('[Webhook] Received empty/test notification. Acknowledging.');
             return NextResponse.json({ success: true, message: "Empty notification." });
         }
         
         console.log('[Webhook] Notification received. Searching for latest #checkspam email...');
-
         const { success, data: email, error } = await fetchLatestEmail();
 
-        if (error) {
-            console.error("[Webhook] Error fetching email:", error);
-            return NextResponse.json({ success: false, message: "Error fetching email." });
-        }
-
-        if (!success || !email) {
-            console.log('[Webhook] Woken up, but no new #checkspam emails found.');
+        if (error || !email) {
+            console.log('[Webhook] Woken up, but no new #checkspam emails found or an error occurred.');
             return NextResponse.json({ success: true, message: "No new emails to process." });
         }
         
+        // --- DEFINITIVE RECIPIENT LOGIC ---
         const originalRecipient = getOriginalRecipient(email.body);
-        const recipient = originalRecipient || process.env.GMAIL_USER_EMAIL;
+        const directSender = getEmailFromHeader(email.sender);
+        
+        const recipient = originalRecipient || directSender;
 
+        // If after all that, we STILL don't have a recipient, we cannot proceed.
         if (!recipient) {
-            console.error("[Webhook] Error: Could not determine recipient.");
-            return NextResponse.json({ success: false, message: "Could not find a recipient." });
+            console.error("[Webhook] CRITICAL ERROR: Could not determine a valid recipient from the email headers. Halting processing.");
+            // We still return success to prevent Pub/Sub from retrying a broken email.
+            return NextResponse.json({ success: true, message: "Could not determine recipient." });
         }
 
         console.log(`[Webhook] Found and processing email for: ${recipient}`);
         const analysisResult = await analyzeEmail(email);
-        console.log(`[Webhook] Analysis complete. Verdict: ${analysisResult.threatVerdict}`);
         const htmlReport = await generateHtmlReport(analysisResult);
 
         await sendReport({
             recipient: recipient,
-            reportContent: analysisResult.report,
             htmlContent: htmlReport
         });
 
