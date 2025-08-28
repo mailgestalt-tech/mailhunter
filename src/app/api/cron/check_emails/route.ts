@@ -7,8 +7,9 @@ import { generateHtmlReport } from '@/app/services/report-formatter';
 
 // A more robust helper to find the original recipient
 function getOriginalRecipient(body: string): string | null {
-    // Look for the "To:" header specifically within the forwarded message block
-    const forwardedContentMatch = body.match(/---------- Forwarded message ---------(.*)/s);
+    // --- THIS IS THE FIX ---
+    // Replaced `(.*)/s` with `([\s\S]*)` for universal JavaScript compatibility.
+    const forwardedContentMatch = body.match(/---------- Forwarded message ---------([\s\S]*)/);
     if (!forwardedContentMatch || !forwardedContentMatch[1]) return null;
     
     const toRegex = /To:.*?<([^>]+)>/i;
@@ -23,14 +24,16 @@ export async function GET(request: Request) {
     }
 
     try {
+        console.log('[Cron Job] Starting...');
         const { success, data: email, error } = await fetchLatestEmail();
 
         if (error) {
-            console.error("Cron Job Error fetching email:", error);
+            console.error("[Cron Job] Error fetching email:", error);
             return NextResponse.json({ success: false, message: "Error fetching email." });
         }
 
         if (!success || !email) {
+            console.log('[Cron Job] No new emails to process.');
             return NextResponse.json({ success: true, message: "No new emails to process." });
         }
         
@@ -38,19 +41,18 @@ export async function GET(request: Request) {
         const recipient = originalRecipient || process.env.GMAIL_USER_EMAIL;
 
         if (!recipient) {
-            console.error("Cron Job Error: Could not determine any recipient (original or fallback).");
+            console.error("[Cron Job] Error: Could not determine any recipient (original or fallback).");
             return NextResponse.json({ success: false, message: "Could not find a recipient." });
         }
 
         console.log(`[Cron Job] Processing email for: ${recipient}`);
 
         const analysisResult = await analyzeEmail(email);
+        console.log(`[Cron Job] Analysis complete. Verdict: ${analysisResult.threatVerdict}`);
 
-        // --- THE FIX IS HERE ---
-        // We must 'await' the result of the async function to get the string
         const htmlReport = await generateHtmlReport(analysisResult);
+        console.log('[Cron Job] HTML report generated.');
 
-        // Now, 'htmlReport' is a string, which is the correct type for 'sendReport'
         await sendReport({
             recipient: recipient,
             reportContent: analysisResult.report,
@@ -61,7 +63,7 @@ export async function GET(request: Request) {
         return NextResponse.json({ success: true, message: `Report sent to ${recipient}.` });
 
     } catch (err: any) {
-        console.error("An unexpected error occurred in the cron job:", err);
+        console.error("[Cron Job] An unexpected error occurred:", err);
         return NextResponse.json({ success: false, message: "Internal Server Error" });
     }
 }
