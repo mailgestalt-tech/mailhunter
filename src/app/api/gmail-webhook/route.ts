@@ -1,115 +1,73 @@
-// src/app/api/gmail-webhook/route.ts
+// src/app/api/gmail-webhook/route.ts (More Robust Version)
 import { NextResponse } from 'next/server';
-import { google } from 'googleapis';
+
+// We now use the more direct fetching function
+import { fetchLatestEmail } from '@/app/actions/fetch-email-action'; 
 import { analyzeEmail } from '@/ai/flows/analyze-email-flow'; 
 import { sendReport } from '@/app/actions/send-report-action';
 import { generateHtmlReport } from '@/app/services/report-formatter';
 
-// Function to get a specific message's details
-async function getMessageDetails(auth: any, messageId: string) {
-    const gmail = google.gmail({ version: 'v1', auth });
-    const messageRes = await gmail.users.messages.get({ userId: 'me', id: messageId, format: 'full' });
-    const payload = messageRes.data.payload;
-
-    if (!payload || !payload.headers) return null;
-
-    // Helper to extract email body (you probably have this elsewhere, consolidate if you can)
-    const getBody = (p: any): string => {
-        if (p.body?.data) return Buffer.from(p.body.data, 'base64').toString('utf-8');
-        if (p.parts) {
-            const plainPart = p.parts.find((part: any) => part.mimeType === 'text/plain');
-            if (plainPart?.body?.data) return Buffer.from(plainPart.body.data, 'base64').toString('utf-8');
-        }
-        return '';
-    };
-    const getHtmlBody = (p: any): string => {
-        if (p.body?.data && p.mimeType === 'text/html') return Buffer.from(p.body.data, 'base64').toString('utf-8');
-        if (p.parts) {
-            const htmlPart = p.parts.find((part: any) => part.mimeType === 'text/html');
-            if (htmlPart?.body?.data) return Buffer.from(htmlPart.body.data, 'base64').toString('utf-8');
-        }
-        return '';
-    };
-    
-    // Find who to send the report to
-    const getOriginalRecipient = (body: string): string | null => {
-        const forwardedContentMatch = body.match(/---------- Forwarded message ---------([\s\S]*)/);
-        if (!forwardedContentMatch || !forwardedContentMatch[1]) return null;
-        const toRegex = /To:.*?<([^>]+)>/i;
-        const match = forwardedContentMatch[1].match(toRegex);
-        return match ? match[1] : null;
-    };
-
-    const body = getBody(payload);
-    const originalRecipient = getOriginalRecipient(body);
-    const recipient = originalRecipient || process.env.GMAIL_USER_EMAIL;
-
-    if (!body.includes('#checkspam') || !recipient) {
-        return null; // Ignore if it doesn't have our tag or we can't find a recipient
-    }
-
-    // Mark as read immediately
-    await gmail.users.messages.modify({
-        userId: 'me', id: messageId, requestBody: { removeLabelIds: ['UNREAD'] }
-    });
-
-    return {
-      sender: payload.headers.find(h => h.name === 'From')?.value || 'Unknown',
-      subject: payload.headers.find(h => h.name === 'Subject')?.value || 'No Subject',
-      body: body,
-      htmlBody: getHtmlBody(payload),
-      recipient: recipient,
-    };
+// Helper to find the original recipient from the forwarded email body
+function getOriginalRecipient(body: string): string | null {
+    const forwardedContentMatch = body.match(/---------- Forwarded message ---------([\s\S]*)/);
+    if (!forwardedContentMatch || !forwardedContentMatch[1]) return null;
+    const toRegex = /To:.*?<([^>]+)>/i;
+    const match = forwardedContentMatch[1].match(toRegex);
+    return match ? match[1] : null;
 }
 
 export async function POST(request: Request) {
     try {
+        // We receive the notification just to be "woken up".
+        // We will ignore the data inside it and perform our own search.
         const body = await request.json();
-        const messageData = JSON.parse(Buffer.from(body.message.data, 'base64').toString('utf-8'));
-        const userEmail = messageData.emailAddress;
-        const historyId = messageData.historyId;
+        if (!body.message) {
+            console.log('[Webhook] Received empty/test notification. Acknowledging.');
+            return NextResponse.json({ success: true, message: "Empty notification." });
+        }
+        
+        console.log('[Webhook] Notification received. Searching for latest #checkspam email...');
 
-        // Create an authenticated client
-        const auth = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET);
-        auth.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
-        const gmail = google.gmail({ version: 'v1', auth });
+        // --- THE NEW, ROBUST LOGIC ---
+        // Instead of parsing the notification, we actively search the mailbox.
+        // This will find the email even if it's in the Spam folder.
+        const { success, data: email, error } = await fetchLatestEmail();
 
-        // Get the history of changes since the last notification
-        const historyRes = await gmail.users.history.list({
-            userId: 'me',
-            startHistoryId: historyId,
-            historyTypes: ['messageAdded'],
+        if (error) {
+            console.error("[Webhook] Error fetching email:", error);
+            return NextResponse.json({ success: false, message: "Error fetching email." });
+        }
+
+        if (!success || !email) {
+            console.log('[Webhook] Woken up, but no new #checkspam emails found.');
+            return NextResponse.json({ success: true, message: "No new emails to process." });
+        }
+        
+        const originalRecipient = getOriginalRecipient(email.body);
+        const recipient = originalRecipient || process.env.GMAIL_USER_EMAIL;
+
+        if (!recipient) {
+            console.error("[Webhook] Error: Could not determine recipient.");
+            return NextResponse.json({ success: false, message: "Could not find a recipient." });
+        }
+
+        console.log(`[Webhook] Found and processing email for: ${recipient}`);
+        const analysisResult = await analyzeEmail(email);
+        console.log(`[Webhook] Analysis complete. Verdict: ${analysisResult.threatVerdict}`);
+        const htmlReport = await generateHtmlReport(analysisResult);
+
+        await sendReport({
+            recipient: recipient,
+            reportContent: analysisResult.report,
+            htmlContent: htmlReport
         });
 
-        const messages = historyRes.data.history?.flatMap(h => h.messagesAdded?.map(m => m.message) || []) || [];
-        if (messages.length === 0) {
-            return NextResponse.json({ success: true, message: "No new messages to process." });
-        }
-
-        for (const message of messages) {
-            if (!message?.id) continue;
-            
-            const emailDetails = await getMessageDetails(auth, message.id);
-            if (!emailDetails) {
-              console.log(`[Webhook] Ignoring message ${message.id} (no #checkspam or recipient).`);
-              continue;
-            }
-
-            console.log(`[Webhook] Processing email for: ${emailDetails.recipient}`);
-            const analysisResult = await analyzeEmail(emailDetails);
-            const htmlReport = await generateHtmlReport(analysisResult);
-
-            await sendReport({
-                recipient: emailDetails.recipient,
-                reportContent: analysisResult.report,
-                htmlContent: htmlReport
-            });
-            console.log(`[Webhook] Report sent successfully to: ${emailDetails.recipient}`);
-        }
-
+        console.log(`[Webhook] Successfully sent report to: ${recipient}`);
         return NextResponse.json({ success: true });
-    } catch (error: any) {
-        console.error('[Webhook] Error:', error.message);
-        return NextResponse.json({ success: false, error: "Internal Server Error" }, { status: 500 });
+
+    } catch (err: any) {
+        console.error("[Webhook] An unexpected error occurred:", err);
+        // Acknowledge the message to prevent Pub/Sub from retrying endlessly on a code error.
+        return NextResponse.json({ success: true, message: "Acknowledged after error." });
     }
-}
+}}
