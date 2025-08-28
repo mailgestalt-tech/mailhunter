@@ -4,14 +4,14 @@ import { Search, Map, Fingerprint, GlobeLock, Bot, GitBranch, Link2, History } f
 export function FeaturesSection() {
     const instantFeatures = [
         {
+            icon: <Bot className="h-8 w-8 text-primary" />,
+            title: "AI Strategic Analysis",
+            description: "My engine uses AI to analyze attacker tactics and predict the overall goal of a malicious email."
+        },
+        {
             icon: <Search className="h-8 w-8 text-primary" />,
             title: "Header & Keyword Analysis",
             description: "Scans email headers for authentication issues (SPF, DKIM, DMARC) and analyzes content for suspicious keywords and phrases."
-        },
-        {
-            icon: <Map className="h-8 w-8 text-primary" />,
-            title: "Geographic Origin Trace",
-            description: "Identifies the geographic location of the email's origin server to help spot high-risk regions."
         },
         {
             icon: <Fingerprint className="h-8 w-8 text-primary" />,
@@ -27,9 +27,10 @@ export function FeaturesSection() {
 
     const deepFeatures = [
         {
-            icon: <Bot className="h-8 w-8 text-primary" />,
-            title: "AI Strategic Analysis",
-            description: "My engine uses AI to analyze attacker tactics and predict the overall goal of a malicious email."
+            // --- MOVED FROM INSTANT FEATURES ---
+            icon: <Map className="h-8 w-8 text-primary" />,
+            title: "Geographic Origin Trace",
+            description: "Identifies the geographic location of the email's origin server to help spot high-risk regions."
         },
         {
             icon: <GitBranch className="h-8 w-8 text-primary" />,
@@ -54,9 +55,10 @@ export function FeaturesSection() {
         <div className="text-center mb-12">
           <h2 className="text-3xl md:text-4xl font-bold font-headline">Free Instant Analysis</h2>
           <p className="text-muted-foreground mt-2 max-w-2xl mx-auto">
-            When you forward an email, I perform the following checks instantly.
+            When you forward an email, my engine performs the following checks as part of the full report.
           </p>
         </div>
+        {/* Grid is now a balanced 2x2 layout */}
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-2 mb-20">
           {instantFeatures.map((feature, index) => (
             <Card key={index} className="flex flex-col bg-card/50 border-border">
@@ -74,11 +76,12 @@ export function FeaturesSection() {
         </div>
 
         <div className="text-center mb-12">
-          <h2 className="text-3xl md:text-4xl font-bold font-headline">Deep Analysis Engine (Full Report)</h2>
+          <h2 className="text-3xl md:text-4xl font-bold font-headline">Deep Analysis Engine</h2>
           <p className="text-muted-foreground mt-2 max-w-2xl mx-auto">
-            My backend engine goes even further. These features are part of the full report you receive via email and will be enhanced in the future paid version.
+            My backend engine goes even further, automatically executing these advanced techniques as part of every report.
           </p>
         </div>
+        {/* Grid is also a balanced 2x2 layout */}
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-2">
             {deepFeatures.map((feature, index) => (
                 <Card key={index} className="flex flex-col bg-card/50 border-border">
