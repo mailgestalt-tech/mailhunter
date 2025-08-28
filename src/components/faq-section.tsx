@@ -21,8 +21,9 @@ export function FaqSection() {
             answer: "Due to deep sandbox analysis and infrastructure investigation, a full report can take anywhere from 2 to 5 minutes to generate. I prioritize thoroughness over speed to give you the most accurate assessment."
         },
         {
+            // --- THIS IS THE MODIFIED ANSWER ---
             question: "Who runs this service?",
-            answer: <>This service is built and maintained by WiredGeist, an IT infrastructure and cybersecurity specialist. You can view the entire open-source code on <Link href="https://github.com/WiredGeist/geisthunt" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">GitHub</Link>.</>
+            answer: <>This service is built and maintained by WiredGeist, an IT infrastructure and cybersecurity specialist. You can learn more on my <Link href="https://wiredgeist.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">WIREDGEIST</Link>.</>
         }
     ];
 
