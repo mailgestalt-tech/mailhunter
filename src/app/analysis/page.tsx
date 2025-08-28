@@ -1,6 +1,11 @@
+// src/app/analysis/page.tsx (Final, Locked-Down Version)
 'use client';
 
+// --- NEW IMPORTS ---
+import { redirect } from 'next/navigation';
 import React, { useState, useTransition } from 'react';
+
+// --- Your existing imports ---
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -9,6 +14,7 @@ import { sendReport } from '@/app/actions/send-report-action';
 import { analyzeEmail } from '@/ai/flows/analyze-email-flow';
 import { AnalyzeEmailOutput } from '@/ai/flows/types';
 import { Loader2, Mail, Send, TestTube2 } from 'lucide-react';
+import { generateHtmlReport } from '@/app/services/report-formatter';
 
 interface EmailData {
   id: string;
@@ -16,10 +22,19 @@ interface EmailData {
   subject: string;
   body: string;
   htmlBody?: string;
-  authResults?: string; // For SPF/DKIM/DMARC
+  authResults?: string;
 }
 
 export default function AnalysisPage() {
+  // --- THIS IS THE CRITICAL CODE ---
+  // If the app is running in the production environment (on Vercel),
+  // immediately redirect any visitor to the homepage.
+  if (process.env.NODE_ENV === 'production') {
+    redirect('/');
+  }
+
+  // The rest of your component code remains exactly the same.
+  // It will only be reachable on your local development machine.
   const [email, setEmail] = useState<EmailData | null>(null);
   const [analysisResult, setAnalysisResult] = useState<AnalyzeEmailOutput | null>(null);
   const [error, setError] = useState<string>('');
@@ -45,7 +60,6 @@ export default function AnalysisPage() {
   
   const handleAnalyzeEmail = () => {
     if (!email) return;
-
     startAnalyzing(async () => {
       setError('');
       setAnalysisResult(null);
@@ -55,7 +69,7 @@ export default function AnalysisPage() {
           subject: email.subject,
           body: email.body,
           htmlBody: email.htmlBody,
-          authResults: email.authResults, // Pass the new header info
+          authResults: email.authResults,
         });
         setAnalysisResult(result);
       } catch (e: any) {
@@ -66,20 +80,15 @@ export default function AnalysisPage() {
   
   const handleSendReport = () => {
     if (!email || !analysisResult) return;
-
     startSending(async () => {
       setError('');
-      const fullReport = `
-Geist Hunt Analysis Report
-==============================
-Final Verdict: ${analysisResult.threatVerdict}
-Threat Score: ${analysisResult.threatScore}/10
-==============================
-
-${analysisResult.report}
-      `;
-
-      const result = await sendReport({ recipient: email.sender, reportContent: fullReport });
+      const fullReportText = `Geist Hunt Analysis Report\n==============================\nFinal Verdict: ${analysisResult.threatVerdict}\nThreat Score: ${analysisResult.threatScore}/30\n==============================\n\n${analysisResult.report}`;
+      const htmlReport = await generateHtmlReport(analysisResult);
+      const result = await sendReport({
+        recipient: email.sender,
+        reportContent: fullReportText,
+        htmlContent: htmlReport,
+      });
       if (!result.success) {
         setError(result.error || 'Failed to send report.');
       } else {
@@ -126,7 +135,7 @@ ${analysisResult.report}
                     </pre>
                     <Button onClick={handleAnalyzeEmail} disabled={isAnalyzing}>
                         {isAnalyzing ? <Loader2 className="animate-spin" /> : <TestTube2 />}
-                        {isAnalyzing ? 'Run Full Analysis' : 'Run Full Analysis'}
+                        {isAnalyzing ? 'Analyzing...' : 'Run Full Analysis'}
                     </Button>
                 </CardContent>
             </Card>
@@ -138,10 +147,12 @@ ${analysisResult.report}
                     <CardTitle>Step 3: Review Report & Send</CardTitle>
                     <CardDescription>
                         Verdict: <span className={`font-bold ${
-                            analysisResult.threatVerdict === 'DANGEROUS' ? 'text-destructive' :
-                            analysisResult.threatVerdict === 'SUSPICIOUS' ? 'text-yellow-500' :
+                            analysisResult.threatVerdict.includes('DANGEROUS') ? 'text-destructive' :
+                            analysisResult.threatVerdict.includes('VERY SUSPICIOUS') ? 'text-red-500' :
+                            analysisResult.threatVerdict.includes('SUSPICIOUS') ? 'text-yellow-500' :
+                            analysisResult.threatVerdict.includes('CAREFUL') ? 'text-orange-500' :
                             'text-green-500'
-                        }`}>{analysisResult.threatVerdict}</span> (Score: {analysisResult.threatScore}/10)
+                        }`}>{analysisResult.threatVerdict}</span> (Score: {analysisResult.threatScore}/30)
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
