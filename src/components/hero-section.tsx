@@ -24,7 +24,7 @@ export function HeroSection() {
           Is Your Email a Threat? Find Out.
         </h1>
         <p className="max-w-3xl mx-auto text-lg md:text-xl text-muted-foreground mb-8">
-          Geist Hunt is an automated threat intelligence service. Forward suspicious emails with the word <strong className="text-primary">checkspam</strong> in the subject line, and my private engine will dissect them and send you a detailed security report.
+          Geist Hunt is an automated threat intelligence service. Forward suspicious emails with the word <strong className="text-primary">#checkspam</strong> in the subject line, and my private engine will dissect them and send you a detailed security report.
         </p>
         <div className="flex justify-center">
           <Card className="max-w-md w-full shadow-lg bg-card border-border">
