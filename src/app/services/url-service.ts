@@ -1,59 +1,63 @@
+// src/app/services/url-service.ts (Corrected Version)
 'use server';
 
 import fetch from 'node-fetch';
 
 const URLSCAN_API_KEY = process.env.URLSCAN_API_KEY;
 
-// --- UPGRADED INTERFACE TO CAPTURE DETAILED DATA ---
-interface UrlScanResult {
+export interface UrlScanResult {
     error?: string;
-    // Main Page Info
     final_url?: string;
     final_domain?: string;
     final_ip?: string;
-    final_ip_country?: string;
-    final_ip_asn?: string;
-
-    // Page Details
     page_title?: string;
-    
-    // Server & Certificate Details
-    server?: string;
-    tls_issuer?: string;
-    
-    // Full list of contacted domains and IPs
-    contacted_domains?: string[];
-    contacted_ips?: string[];
+    // We can add more fields here as needed
 }
 
-// Helper function to delay execution
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// --- NEW FUNCTION: Pre-resolve the redirect ---
+async function resolveRedirect(url: string): Promise<string> {
+    try {
+        // A HEAD request is lightweight and will follow redirects by default
+        const response = await fetch(url, { method: 'HEAD', redirect: 'follow', timeout: 10000 });
+        // The 'response.url' will be the final destination URL after all redirects
+        return response.url;
+    } catch (error) {
+        console.error(`Redirect resolution failed for ${url}:`, error);
+        // If it fails, return the original URL and let urlscan try
+        return url;
+    }
+}
 
 export async function getUrlScanReport(urlToScan: string): Promise<UrlScanResult> {
     if (!URLSCAN_API_KEY || URLSCAN_API_KEY.includes("YOUR_URLSCAN")) {
         return { error: "urlscan.io API key not configured." };
     }
     
-    if (urlToScan.length > 2000) {
-        return { error: "URL is too long for urlscan.io API." };
+    // --- STEP 1: RESOLVE THE REDIRECT FIRST ---
+    console.log(`[Geist Hunt] Resolving initial URL: ${urlToScan.substring(0, 80)}...`);
+    const finalUrl = await resolveRedirect(urlToScan);
+    console.log(`[Geist Hunt] Redirect resolved to: ${finalUrl}`);
+
+    // If the redirect leads to a super long, un-scannable URL, report an error.
+    if (finalUrl.length > 2000) {
+        return { error: "Resolved URL is too long for urlscan.io API." };
     }
 
     const headers = { 'API-Key': URLSCAN_API_KEY, 'Content-Type': 'application/json' };
-    const body = JSON.stringify({ url: urlToScan, visibility: "private" });
+    const body = JSON.stringify({ url: finalUrl, visibility: "private" });
 
     try {
-        // --- STEP 1: SUBMIT THE URL FOR SCANNING ---
-        console.log(`[urlscan.io] Submitting URL for analysis: ${urlToScan}`);
+        // --- STEP 2: SUBMIT THE FINAL URL FOR SCANNING ---
+        console.log(`[urlscan.io] Submitting final URL for analysis: ${finalUrl}`);
         const submitResponse = await fetch('https://urlscan.io/api/v1/scan/', {
-            method: 'POST',
-            headers,
-            body,
-            timeout: 20000,
+            method: 'POST', headers, body, timeout: 20000,
         });
 
         if (!submitResponse.ok) {
             const errorBody: any = await submitResponse.json();
-            return { error: `API submission failed: ${errorBody.message || 'Unknown error'}` };
+            return { error: `API submission failed: ${errorBody.description || errorBody.message}` };
         }
 
         const submitData: any = await submitResponse.json();
@@ -63,43 +67,23 @@ export async function getUrlScanReport(urlToScan: string): Promise<UrlScanResult
             return { error: `API submission failed: ${submitData.message || 'Could not get result URL'}` };
         }
         
-        console.log("[urlscan.io] Scan submitted. Now polling for final results...");
-        
-        // --- STEP 2: POLLING FOR THE FINAL RESULT ---
-        for (let i = 0; i < 12; i++) { 
-            await sleep(10000);
-            console.log(` > Checking for results (attempt ${i + 1}/12)...`);
-
+        // --- STEP 3: POLLING FOR THE FINAL RESULT ---
+        for (let i = 0; i < 15; i++) { 
+            await sleep(8000); // Polling every 8 seconds
             const resultResponse = await fetch(resultApiUrl, { timeout: 10000 });
             
             if (resultResponse.status === 200) {
-                console.log("[urlscan.io] SUCCESS: Final results received.");
                 const scanData: any = await resultResponse.json();
-                
-                const pageData = scanData.page || {};
-                const lists = scanData.lists || {};
-
-                // --- EXTRACT THE DETAILED DATA YOU REQUESTED ---
                 return {
-                    final_url: pageData.url,
-                    final_domain: pageData.domain,
-                    final_ip: pageData.ip,
-                    final_ip_country: pageData.country,
-                    final_ip_asn: pageData.asnname,
+                    final_url: scanData.page?.url,
+                    final_domain: scanData.page?.domain,
+                    final_ip: scanData.page?.ip,
                     page_title: scanData.task?.pageTitle,
-                    server: pageData.server,
-                    tls_issuer: pageData.tlsIssuer,
-                    contacted_domains: lists.domains || [],
-                    contacted_ips: lists.ips || [],
                 };
             }
-            
-            if (resultResponse.status === 404) {
-                continue; 
+            if (resultResponse.status !== 404) {
+                return { error: `Error fetching results. Status: ${resultResponse.status}` };
             }
-
-            const errorText = await resultResponse.text();
-            return { error: `Error fetching results. Status: ${resultResponse.status}, Body: ${errorText}` };
         }
         
         return { error: "Scan timed out on urlscan.io after 2 minutes." };
